@@ -1,0 +1,35 @@
+name: Setup Node.js + pnpm
+description: Checkout, enable pnpm via corepack, configure Node.js with caching, and install dependencies
+
+inputs:
+  node-version:
+    description: Node.js version to install
+    required: false
+    default: "24"
+  registry-url:
+    description: npm registry URL (set for publishing)
+    required: false
+    default: ""
+  fetch-depth:
+    description: Git fetch depth (0 for full history)
+    required: false
+    default: "1"
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/checkout@v6
+      with:
+        fetch-depth: ${{ inputs.fetch-depth }}
+
+    - uses: pnpm/action-setup@v4
+
+    - uses: actions/setup-node@v6
+      with:
+        node-version: ${{ inputs.node-version }}
+        cache: pnpm
+        registry-url: ${{ inputs.registry-url || '' }}
+
+    - name: Install dependencies
+      shell: bash
+      run: pnpm install --frozen-lockfile

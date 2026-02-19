@@ -1,0 +1,54 @@
+name: Release — npm
+
+on:
+  workflow_call:
+    inputs:
+      node-version:
+        description: Node.js version
+        type: string
+        default: "24"
+      npm-access:
+        description: npm publish access level
+        type: string
+        default: "public"
+      run-typecheck:
+        description: Run typecheck before publishing
+        type: boolean
+        default: true
+      run-build:
+        description: Run build before publishing
+        type: boolean
+        default: true
+    secrets:
+      NPM_TOKEN:
+        description: npm authentication token
+        required: true
+
+jobs:
+  publish:
+    name: Publish to npm
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      id-token: write  # npm provenance attestation
+
+    steps:
+      - name: Setup Node.js + pnpm
+        uses: codefuturist/shared-workflows/actions/setup-node-pnpm@v1
+        with:
+          node-version: ${{ inputs.node-version }}
+          registry-url: https://registry.npmjs.org
+
+      - name: Typecheck
+        if: inputs.run-typecheck
+        run: pnpm typecheck
+
+      - name: Build
+        if: inputs.run-build
+        run: pnpm build
+
+      - name: Publish to npm
+        run: npm publish --access ${{ inputs.npm-access }} --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

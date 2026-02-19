@@ -1,0 +1,113 @@
+name: Docker Build & Push
+
+on:
+  workflow_call:
+    inputs:
+      images:
+        description: >
+          Newline-separated list of image names
+          (e.g. "ghcr.io/org/app\ndockerhub/app")
+        type: string
+        required: true
+      tags:
+        description: >
+          docker/metadata-action tag rules for the primary (Debian) image.
+          Passed directly to the `tags` input of metadata-action.
+        type: string
+        required: true
+      alpine-tags:
+        description: >
+          docker/metadata-action tag rules for the Alpine variant.
+          Leave empty to skip Alpine build.
+        type: string
+        default: ""
+      platforms:
+        description: Target platforms (comma-separated)
+        type: string
+        default: "linux/amd64,linux/arm64"
+      dockerfile:
+        description: Path to the primary Dockerfile
+        type: string
+        default: "Dockerfile"
+      dockerfile-alpine:
+        description: Path to the Alpine Dockerfile
+        type: string
+        default: "Dockerfile.alpine"
+      push:
+        description: Whether to push images (false for dry-run)
+        type: boolean
+        default: true
+      context:
+        description: Docker build context path
+        type: string
+        default: "."
+    secrets:
+      GHCR_TOKEN:
+        description: GHCR token (typically secrets.GITHUB_TOKEN)
+        required: true
+      DOCKERHUB_USERNAME:
+        description: Docker Hub username
+        required: false
+      DOCKERHUB_TOKEN:
+        description: Docker Hub token
+        required: false
+
+jobs:
+  build-push:
+    name: Build & Push
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Docker setup
+        uses: codefuturist/shared-workflows/actions/docker-setup@v1
+        with:
+          ghcr-username: ${{ github.actor }}
+          ghcr-token: ${{ secrets.GHCR_TOKEN }}
+          dockerhub-username: ${{ secrets.DOCKERHUB_USERNAME }}
+          dockerhub-token: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Docker meta (primary)
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ inputs.images }}
+          tags: ${{ inputs.tags }}
+
+      - name: Build and push (primary)
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ inputs.context }}
+          file: ${{ inputs.dockerfile }}
+          push: ${{ inputs.push }}
+          platforms: ${{ inputs.platforms }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=primary
+          cache-to: type=gha,mode=max,scope=primary
+
+      - name: Docker meta (Alpine)
+        if: inputs.alpine-tags != ''
+        id: meta-alpine
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ inputs.images }}
+          tags: ${{ inputs.alpine-tags }}
+
+      - name: Build and push (Alpine)
+        if: inputs.alpine-tags != ''
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ inputs.context }}
+          file: ${{ inputs.dockerfile-alpine }}
+          push: ${{ inputs.push }}
+          platforms: ${{ inputs.platforms }}
+          tags: ${{ steps.meta-alpine.outputs.tags }}
+          labels: ${{ steps.meta-alpine.outputs.labels }}
+          cache-from: type=gha,scope=alpine
+          cache-to: type=gha,mode=max,scope=alpine
