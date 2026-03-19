@@ -98,6 +98,22 @@ Checkout, enable pnpm via corepack, configure Node.js with caching, and install 
     fetch-depth: "1"       # default: "1" — use "0" for full git history
 ```
 
+### `actions/notify-mattermost`
+
+Send CI/CD notifications to Mattermost with consistent formatting (status emoji, workflow details table, optional alert escalation on failure).
+
+```yaml
+- uses: codefuturist/shared-workflows/actions/notify-mattermost@v1
+  if: always()
+  with:
+    webhook-url: ${{ secrets.MATTERMOST_WEBHOOK_CI }}          # required — ci-cd channel
+    webhook-url-alert: ${{ secrets.MATTERMOST_WEBHOOK_ALERT }} # optional — system-alerts on failure
+    status: ${{ job.status }}                                   # required
+    title: "My Workflow"                                        # optional — defaults to workflow name
+    message: "Extra details here"                               # optional
+    channel: ""                                                 # optional — override channel
+```
+
 ### `actions/docker-setup`
 
 Set up QEMU, Docker Buildx, and login to GHCR + Docker Hub (Docker Hub is optional).
@@ -125,6 +141,8 @@ All workflows support `secrets: inherit` for same-org repos. For cross-org usage
 | `GITHUB_TOKEN` | `docker-build-push.yml` (as `GHCR_TOKEN`) | Yes (auto-provided) |
 | `DOCKERHUB_USERNAME` | `docker-build-push.yml`, `docker-setup` | No |
 | `DOCKERHUB_TOKEN` | `docker-build-push.yml`, `docker-setup` | No |
+| `MATTERMOST_WEBHOOK_CI` | `notify-mattermost` | Yes |
+| `MATTERMOST_WEBHOOK_ALERT` | `notify-mattermost` | No |
 
 ## License
 

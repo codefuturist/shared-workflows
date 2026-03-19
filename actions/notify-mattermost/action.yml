@@ -1,0 +1,110 @@
+name: 'Notify Mattermost'
+description: 'Send CI/CD notifications to Mattermost with consistent formatting'
+
+inputs:
+  webhook-url:
+    description: 'Mattermost webhook URL for the ci-cd channel'
+    required: true
+  webhook-url-alert:
+    description: 'Mattermost webhook URL for the system-alerts channel (used on failure)'
+    required: false
+    default: ''
+  status:
+    description: 'Job status (success, failure, cancelled)'
+    required: true
+  title:
+    description: 'Custom notification title (defaults to workflow name)'
+    required: false
+    default: ''
+  message:
+    description: 'Additional message text'
+    required: false
+    default: ''
+  channel:
+    description: 'Override destination channel'
+    required: false
+    default: ''
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Send Mattermost notification
+      shell: bash
+      env:
+        WEBHOOK_URL: ${{ inputs.webhook-url }}
+        WEBHOOK_URL_ALERT: ${{ inputs.webhook-url-alert }}
+        STATUS: ${{ inputs.status }}
+        TITLE: ${{ inputs.title }}
+        MESSAGE: ${{ inputs.message }}
+        CHANNEL_OVERRIDE: ${{ inputs.channel }}
+        WORKFLOW: ${{ github.workflow }}
+        RUN_ID: ${{ github.run_id }}
+        RUN_NUMBER: ${{ github.run_number }}
+        REPO: ${{ github.repository }}
+        BRANCH: ${{ github.ref_name }}
+        COMMIT_SHA: ${{ github.sha }}
+        ACTOR: ${{ github.triggering_actor }}
+        EVENT: ${{ github.event_name }}
+        SERVER_URL: ${{ github.server_url }}
+      run: |
+        # Determine status emoji and color
+        case "$STATUS" in
+          success)   EMOJI=":white_check_mark:"; LABEL="Success" ;;
+          failure)   EMOJI=":x:";                LABEL="Failed" ;;
+          cancelled) EMOJI=":no_entry_sign:";    LABEL="Cancelled" ;;
+          *)         EMOJI=":grey_question:";    LABEL="$STATUS" ;;
+        esac
+
+        # Build title
+        NOTIFICATION_TITLE="${TITLE:-$WORKFLOW}"
+        SHORT_SHA="${COMMIT_SHA:0:7}"
+        RUN_URL="${SERVER_URL}/${REPO}/actions/runs/${RUN_ID}"
+
+        # Build message body (using printf to preserve literal \n)
+        TEXT="### ${EMOJI} ${NOTIFICATION_TITLE} — ${LABEL}"
+        TEXT="${TEXT}"$'\n'"| Field | Value |"
+        TEXT="${TEXT}"$'\n'"|---|---|"
+        TEXT="${TEXT}"$'\n'"| **Workflow** | [${WORKFLOW} #${RUN_NUMBER}](${RUN_URL}) |"
+        TEXT="${TEXT}"$'\n'"| **Branch** | \`${BRANCH}\` |"
+        TEXT="${TEXT}"$'\n'"| **Commit** | [\`${SHORT_SHA}\`](${SERVER_URL}/${REPO}/commit/${COMMIT_SHA}) |"
+        TEXT="${TEXT}"$'\n'"| **Trigger** | ${EVENT} by @${ACTOR} |"
+
+        if [ -n "$MESSAGE" ]; then
+          TEXT="${TEXT}"$'\n\n'"${MESSAGE}"
+        fi
+
+        # Build JSON payload using jq for safe escaping
+        PAYLOAD=$(jq -n \
+          --arg text "$TEXT" \
+          --arg channel "$CHANNEL_OVERRIDE" \
+          '{
+            username: "GitHub Actions",
+            icon_url: "https://github.githubassets.com/images/modules/logos_page/GitHub-Mark.png",
+            text: $text
+          } + (if $channel != "" then {channel: $channel} else {} end)')
+
+        # Send notification helper
+        send_webhook() {
+          local url="$1" label="$2"
+          local err_file
+          err_file=$(mktemp)
+          local http_code
+          http_code=$(curl -sS -o /dev/null -w "%{http_code}" --max-time 30 \
+            -X POST "$url" \
+            -H "Content-Type: application/json" \
+            -d "$PAYLOAD" 2>"$err_file") || true
+          if [ "$http_code" != "200" ]; then
+            local err_msg
+            err_msg=$(cat "$err_file")
+            echo "::warning::${label} failed (HTTP ${http_code}). ${err_msg}"
+          fi
+          rm -f "$err_file"
+        }
+
+        # Send to primary webhook (ci-cd channel)
+        send_webhook "$WEBHOOK_URL" "Mattermost notification"
+
+        # On failure, also send to system-alerts
+        if [ "$STATUS" = "failure" ] && [ -n "$WEBHOOK_URL_ALERT" ]; then
+          send_webhook "$WEBHOOK_URL_ALERT" "Alert notification"
+        fi
