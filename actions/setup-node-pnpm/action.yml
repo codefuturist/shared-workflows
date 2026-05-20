@@ -22,7 +22,11 @@ runs:
       with:
         fetch-depth: ${{ inputs.fetch-depth }}
 
-    - uses: pnpm/action-setup@v4
+    # v6 reads pnpm version from package.json `packageManager` cleanly.
+    # v4 errored when `packageManager` was also present in package.json
+    # ("Multiple versions of pnpm specified") because v4 carried its own
+    # default of "9" that conflicted with the explicit pin.
+    - uses: pnpm/action-setup@v6
 
     - uses: actions/setup-node@v6
       with:
